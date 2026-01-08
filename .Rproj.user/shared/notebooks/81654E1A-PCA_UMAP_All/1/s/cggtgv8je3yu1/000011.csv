@@ -1,0 +1,5 @@
+"0",""
+"0","# Calculate the percent contribution of each analyte (in columns 4 to last) to the total HPAC concentration"
+"0","percent_normalized_data <- concentration_filtered %>%"
+"0","  mutate(across(4:last_col(), ~ (. / Total_PAC) * 100)) # ~ introduce the anonymous function to each column and . is representing each sample"
+"0","percent_normalized_data"

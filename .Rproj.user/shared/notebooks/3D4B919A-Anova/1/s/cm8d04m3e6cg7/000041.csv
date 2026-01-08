@@ -1,0 +1,4 @@
+"0",""
+"0","# Load binary data (detect/non-detect)"
+"0","binary_data <- clean_names(read.csv(here(""data"",""binary_table.csv"")))"
+"0","binary_data"

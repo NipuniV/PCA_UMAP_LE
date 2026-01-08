@@ -1,0 +1,5 @@
+"0",""
+"0","# Step 3: Drop the 'Total_PAC' column if not needed for PCA"
+"0","percent_normalized_data <- percent_normalized_data %>%"
+"0","  select(-sample, -species,-basin, -Total_PAC) # remove the column with total PACs concentration"
+"0","percent_normalized_data # The 'percent_normalized_data' now contains the percent contribution HPACs profiles."

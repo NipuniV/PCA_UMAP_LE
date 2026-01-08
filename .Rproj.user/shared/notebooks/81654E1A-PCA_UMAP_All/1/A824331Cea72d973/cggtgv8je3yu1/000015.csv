@@ -1,0 +1,7 @@
+"0",""
+"0","# Assuming 'filtered_data' is a data frame with PAC concentrations from 4th column to the last column"
+"0","# Calculate the total PAC concentration for each sample using columns 3 to last"
+"0","concentration_filtered <- pca_input %>%"
+"0","  rowwise() %>% #do the operations raw by raw individually"
+"0","  mutate(Total_PAC = sum(c_across(4:last_col()))) # Take the summary of each raw"
+"0","concentration_filtered"

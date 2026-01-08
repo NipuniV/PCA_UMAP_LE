@@ -1,0 +1,7 @@
+"0",""
+"0","# Save the plot in the ""figures"" folder inside the project directory"
+"0","ggsave("
+"0","  filename = here(""figures"", ""PCA_Biplot.png""), # Save as PNG in the correct folder"
+"0","  plot = pca_biplot, "
+"0","  width = 8, height = 6, dpi = 300"
+"0",")"

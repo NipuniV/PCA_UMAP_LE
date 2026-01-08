@@ -1,0 +1,4 @@
+"0",""
+"0","# Save PCA values in the output folder"
+"0","write.csv(pca_values, here(""output"", ""PCA_values_HPACs.csv""), row.names = FALSE)"
+"0",""

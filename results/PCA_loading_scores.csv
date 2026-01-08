@@ -1,0 +1,19 @@
+,,,Dim.1,Dim.2,Dim.3,Dim.4,Dim.5,,,,Dim.1,,,Dim.2,,,Dim.3
+panh1,panh1,Quinoline ,0.759819326,-0.299365454,-0.333953926,0.183511791,-0.13296003,,,5-Chloroindole ,-0.917628106,,11H-Benzo[a]carbazole ,-0.467116394,,3-Bromoisoquinoline ,-0.508814944
+panh11,panh11,Acridine ,0.200330793,-0.067398143,0.446768107,0.589617559,-0.009790236,,,"2,3-Dibromobenzothiophene ",-0.138271906,,"Dibenz[c,h]acridine ",-0.423769665,,Quinoline ,-0.333953926
+panh12,panh12,9-Methylcarbazole ,0.186682453,-0.412088023,0.003073988,0.42103253,0.577928034,,,"3,6-Dimethylcarbazole ",-0.108900309,,Isoquinoline ,-0.422397693,,Isoquinoline ,-0.320396837
+panh13,panh13,Carbazole ,0.54179205,-0.316256444,-0.005928149,0.145072088,-0.03678224,,,11H-Benzo[a]carbazole ,-0.033800394,,9-Methylcarbazole ,-0.412088023,,"2,3,4-Trimethylbenzothiophene ",-0.137206134
+panh15,panh15,2-Methylacridine ,0.621900761,0.148037428,0.38594166,-0.080006418,0.166527022,,,9-Methylcarbazole ,0.186682453,,Carbazole ,-0.316256444,,"2,3-Dibromobenzothiophene ",-0.1276171
+panh16,panh16,"3,6-Dimethylcarbazole ",-0.108900309,0.39780374,0.52833291,-0.023968315,0.02943178,,,Acridine ,0.200330793,,Quinoline ,-0.299365454,,Dibenzothiophene ,-0.068617372
+panh2,panh2,Isoquinoline ,0.57089117,-0.422397693,-0.320396837,-0.159729374,0.076371401,,,"Dibenz[c,h]acridine ",0.251721373,,3-Methylisoquinoline ,-0.285420493,,5-Chloroindole ,-0.046490562
+panh20,panh20,11H-Benzo[a]carbazole ,-0.033800394,-0.467116394,0.606313965,0.066761609,0.451367939,,,"2,3-Dimethylbenzothiophene ",0.442761418,,Acridine ,-0.067398143,,3-Methylisoquinoline ,-0.045540638
+panh21,panh21,"Dibenz[c,h]acridine ",0.251721373,-0.423769665,0.561208055,-0.351161074,0.012134408,,,4-Methyldibenzothiophene ,0.46569049,,5-Chloroindole ,-0.033641298,,Carbazole ,-0.005928149
+panh25,panh25,5-Chloroindole ,-0.917628106,-0.033641298,-0.046490562,-0.000218368,0.156292116,,,Dibenzothiophene ,0.475772808,,"2,3,4-Trimethylbenzothiophene ",0.061386594,,9-Methylcarbazole ,0.003073988
+panh26,panh26,3-Bromoisoquinoline ,0.57977424,0.18627742,-0.508814944,0.08722175,0.235765461,,,"2,4-Dimethyldibenzothiophene ",0.528370487,,"2,3-Dimethylbenzothiophene ",0.104550534,,"2,4-Dimethyldibenzothiophene ",0.154971622
+panh5,panh5,3-Methylisoquinoline ,0.669818392,-0.285420493,-0.045540638,-0.276560079,-0.190387816,,,Carbazole ,0.54179205,,2-Methylacridine ,0.148037428,,4-Methyldibenzothiophene ,0.214883543
+pash18,pash18,"2,3-Dibromobenzothiophene ",-0.138271906,0.427172301,-0.1276171,-0.374468213,0.612681901,,,Isoquinoline ,0.57089117,,3-Bromoisoquinoline ,0.18627742,,2-Methylacridine ,0.38594166
+pash2,pash2,"2,3-Dimethylbenzothiophene ",0.442761418,0.104550534,0.549307645,-0.459024414,-0.224090894,,,3-Bromoisoquinoline ,0.57977424,,4-Methyldibenzothiophene ,0.375703447,,Acridine ,0.446768107
+pash3,pash3,"2,3,4-Trimethylbenzothiophene ",0.588793183,0.061386594,-0.137206134,-0.367956625,0.305559305,,,"2,3,4-Trimethylbenzothiophene ",0.588793183,,"3,6-Dimethylcarbazole ",0.39780374,,"3,6-Dimethylcarbazole ",0.52833291
+pash4,pash4,Dibenzothiophene ,0.475772808,0.628509077,-0.068617372,0.00193617,0.068391451,,,2-Methylacridine ,0.621900761,,"2,3-Dibromobenzothiophene ",0.427172301,,"2,3-Dimethylbenzothiophene ",0.549307645
+pash5,pash5,4-Methyldibenzothiophene ,0.46569049,0.375703447,0.214883543,0.504673773,-0.104379612,,,3-Methylisoquinoline ,0.669818392,,"2,4-Dimethyldibenzothiophene ",0.619784466,,"Dibenz[c,h]acridine ",0.561208055
+pash6,pash6,"2,4-Dimethyldibenzothiophene ",0.528370487,0.619784466,0.154971622,0.15306616,0.071194025,,,Quinoline ,0.759819326,,Dibenzothiophene ,0.628509077,,11H-Benzo[a]carbazole ,0.606313965

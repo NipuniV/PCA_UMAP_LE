@@ -1,0 +1,490 @@
+---
+title: "ANOVA"
+author: "Nipuni Vitharana"
+date: "2025-05-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# Install all the Packages needed
+library(tidyverse)
+library(broom)
+library(janitor)
+library(here)
+library(ggridges)
+library(viridis)
+library(ggthemes)
+library(ggrepel)
+library(patchwork)
+library(ggtext)
+library(umap)
+library(factoextra)
+library(FactoMineR)
+library(vegan) # For Hellinger transformation
+library(cowplot)
+
+```
+
+
+```{r}
+# Load and prepare data ---------------------------------------------------
+# Load concentration data with clean names
+concentration_data <- clean_names(read.csv(here("data", "concentration_data.csv")))
+concentration_data
+
+# Load binary data (detect/non-detect)
+binary_data <- clean_names(read.csv(here("data","binary_table.csv")))
+binary_data
+
+```
+
+
+```{r}
+# Calculation of detection percentage -------------------------------------
+binary_data_matrix <- binary_data[,-1]  # Remove sample names column
+
+# Calculate detection percentages
+detection_percentages <- colSums(binary_data_matrix) / nrow(binary_data_matrix) * 100
+write.csv(detection_percentages, here("results", "detection_percentages.csv"),row.names = FALSE)
+
+# Select analytes with 75% or higher detection percentage
+selected_analytes <- names(detection_percentages[detection_percentages >= 75])
+
+# Filter concentration data to include only selected analytes
+filtered_data <- concentration_data %>%
+  select(all_of(c("sample", "species", "basin", selected_analytes)))
+filtered_data
+```
+
+```{r}
+
+# Apply log10 transformation directly to analyte columns
+log_transformed_data <- filtered_data %>%
+  mutate(across(all_of(selected_analytes), ~ log10(.x + 1))) # Added +1 to handle zeros
+
+# ANOVA Analysis ----------------------------------------------------------
+fish_data <- log_transformed_data
+
+# Get analyte columns (all columns except sample, species, basin)
+analyte_columns <- colnames(fish_data)[!colnames(fish_data) %in% c("sample", "species", "basin")]
+
+# Function to perform ANOVA for a given basin and analyte
+perform_anova <- function(basin_name, analyte) {
+  # Filter data for the specific basin
+  basin_data <- fish_data %>% filter(basin == basin_name)
+  
+  # Perform ANOVA
+  anova_result <- aov(as.formula(paste(analyte, "~ species")), data = basin_data)
+  
+  # Extract p-value
+  p_value <- tidy(anova_result)$p.value[1]
+  
+  # Return result as a data frame
+  data.frame(basin = basin_name, 
+             analyte = analyte, 
+             p_value = p_value,
+             significant = p_value < 0.05)
+}
+
+# Create a grid of all combinations of basins and analytes
+all_combinations <- expand.grid(
+  basin = unique(fish_data$basin),
+  analyte = analyte_columns,
+  stringsAsFactors = FALSE
+)
+
+# Perform ANOVA for all combinations
+results <- map2_df(all_combinations$basin, all_combinations$analyte, perform_anova)
+
+# Count number of non-significant basins for each analyte
+analyte_consistency <- results %>%
+  group_by(analyte) %>%
+  summarize(
+    num_non_significant = sum(!significant),
+    num_basins = n(),
+    proportion_non_sig = num_non_significant / num_basins
+  ) %>%
+  arrange(desc(num_non_significant))
+
+# View the consistency summary
+print("Analyte consistency across basins:")
+print(analyte_consistency)
+
+# Select analytes with non-significant results in at least 3 basins
+low_var_analytes <- analyte_consistency %>%
+  filter(num_non_significant >= 2) %>%
+  pull(analyte)
+
+# Print the selected analytes
+print("Analytes with non-significant species differences in ≥2 basins:")
+print(low_var_analytes)
+
+# Filter the full results to show only selected analytes
+low_var_analytes <- results %>%
+  filter(analyte %in% low_var_analytes) %>%
+  arrange(analyte, basin)
+
+# View the detailed results for selected analytes
+print("Detailed ANOVA results for selected analytes:")
+print(low_var_analytes)
+# Save the selected results to CSV
+write.csv(low_var_analytes, here("results", "selected_anova_results.csv"), row.names = FALSE)
+
+```
+
+```{r}
+
+# Create a visualization of the selected analytes
+selected_plot <- ggplot(low_var_analytes, aes(x = analyte, y = -log10(p_value), fill = significant)) +
+  geom_col(aes(fill = significant), position = "dodge") +
+  geom_hline(yintercept = -log10(0.05), color = "red", linetype = "dashed") +
+  facet_wrap(~ basin, nrow = 1) +
+  scale_fill_manual(values = c("TRUE" = "indianred2", "FALSE" = "steelblue3"),
+                    labels = c("TRUE" = "Significant", "FALSE" = "Non-significant")) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top") +
+  labs(title = "Analytes with non-significant species differences in ≥2 basins",
+       y = "-log10(p-value)",
+       x = "Analyte",
+       fill = "Significance")
+
+# Save the plot
+ggsave(here("figures", "selected_analytes_plot.png"), selected_plot, 
+       width = 10, height = 6, dpi = 300)
+
+# PCA Analysis with Hellinger Transformation ------------------------------
+
+# Step 1: Extract the analytes with low variance (from previous step)
+selected_analytes_anova <- low_var_analytes$analyte
+selected_analytes_anova
+```
+
+
+```{r}
+#Step 2: Filter original (non-log) concentration data
+pca_input <- concentration_data %>%
+  select(sample, species, basin, all_of(selected_analytes_anova))
+
+# Apply Hellinger transformation
+hellinger_data <- pca_input %>%
+  select(-sample, -species, -basin) %>%
+  decostand(method = "hellinger") %>%
+  as.data.frame()
+
+# Add back metadata
+hellinger_data <- cbind(pca_input[, c("sample", "species", "basin")], hellinger_data)
+hellinger_data
+```
+
+
+```{r}
+
+# Perform PCA on the Hellinger-transformed data
+pca_results <- PCA(hellinger_data[, !names(hellinger_data) %in% c("sample", "species", "basin")], 
+                   graph = FALSE)
+
+# Extract PCA results
+pca_values <- as.data.frame(pca_results$ind$coord)
+pca_values <- cbind(hellinger_data[, c("sample", "species", "basin")], pca_values[, 1:3])
+colnames(pca_values)[4:6] <- c("PC1", "PC2", "PC3")
+pca_values
+
+# Save PCA values in the output folder
+write.csv(pca_values, here("output", "PCA_values_HPACs.csv"), row.names = FALSE)
+
+# Identify high-loading analytes for each principal component
+loading_scores <- as.data.frame(pca_results$var$coord)
+high_loading_analytes <- lapply(1:3, function(i) {
+  loading_scores %>%
+    select(contains(paste0("Dim.", i))) %>%
+    rownames_to_column(var = "sample") %>%
+    arrange(desc(abs(get(paste0("Dim.", i))))) %>%
+    head(5) %>%
+    pull(sample)
+})
+names(high_loading_analytes) <- c("PC1_high", "PC2_high", "PC3_high")
+
+# Save loading scores to CSV files
+write.csv(high_loading_analytes, here("results", "high_loading_analytes_HPAC.csv"), row.names = TRUE)
+write.csv(loading_scores, here("results", "PCA_loading_scores.csv"), row.names = TRUE)
+write.csv(as.data.frame(pca_results$eig), here("results", "PCA_eigenvalues.csv"), row.names = TRUE)
+```
+
+
+
+```{r}
+# PCA Visualization ------------------------------------------------------
+
+# Plot PCA results (PC1 vs PC2)
+pca_plot_pc1_pc2 <- ggplot(pca_values, aes(x = PC1, y = PC2, color = basin, shape = species)) +
+  geom_point(size = 3) +
+  labs(title = "PCA for Fish Samples from Lake Erie (PC1 vs PC2)",
+       x = "Principal Component 1", y = "Principal Component 2") +
+  theme_minimal() +
+  scale_color_manual(values = c("Eastern" = "#233d4d", 
+                               "East Central" = "#db3a34", 
+                               "West Central" = "#fcca46", 
+                               "Western" = "#619b8a")) +
+  scale_shape_manual(values = c("Yellow Perch" = 8, 
+                               "Walleye" = 16,
+                               "Freshwater Drum" = 18,
+                               "Gizzard Shad" = 15))
+
+ggsave(here("figures", "PCA_PC1_vs_PC2_HPACs.png"), pca_plot_pc1_pc2, width = 8, height = 6, dpi = 300)
+
+# Plot PCA results (PC1 vs PC3)
+pca_plot_pc1_pc3 <- ggplot(pca_values, aes(x = PC1, y = PC3, color = basin, shape = species)) +
+  geom_point(size = 3) +
+  labs(title = "PCA for Fish Samples from Lake Erie (PC1 vs PC3)",
+       x = "Principal Component 1", y = "Principal Component 3") +
+  theme_minimal() +
+  scale_color_manual(values = c("Eastern" = "#233d4d", 
+                             "East Central" = "#db3a34", 
+                               "West Central" = "#fcca46", 
+                               "Western" = "#619b8a")) +
+  scale_shape_manual(values = c("Yellow Perch" = 8, 
+                               "Walleye" = 16,
+                               "Freshwater Drum" = 18,
+                               "Gizzard Shad" = 15))
+
+ggsave(here("figures", "PCA_PC1_vs_PC3_HPACs.png"), pca_plot_pc1_pc3, width = 8, height = 6, dpi = 300)
+```
+
+```{r}
+
+# Biplot Function --------------------------------------------------------
+
+create_biplot <- function(pca_data, pca_results, metadata, pc_x = 1, pc_y = 2, 
+                         n_loading_labels = 12, point_size = 3.5, 
+                         loading_arrow_color = "red", 
+                         loading_label_color = "blue") {
+  
+  # Extract scores
+  scores <- as.data.frame(pca_results$ind$coord)
+  colnames(scores) <- paste0("PC", 1:ncol(scores))
+  
+  # Combine with metadata
+  scores <- cbind(metadata[, c("sample", "species", "basin")], scores)
+  
+  # Extract loadings
+  loadings <- as.data.frame(pca_results$var$coord)
+  colnames(loadings) <- paste0("PC", 1:ncol(loadings))
+  
+  # Calculate scaling factor
+  scaling_factor <- 0.4 * max(abs(scores[[paste0("PC", pc_x)]])) / max(abs(loadings[[paste0("PC", pc_x)]]))
+  
+  # Select top loading variables
+  top_loadings <- loadings %>%
+    mutate(variable = rownames(.),
+           importance = sqrt(get(paste0("PC", pc_x))^2 + get(paste0("PC", pc_y))^2)) %>%
+    arrange(desc(importance)) %>%
+    head(n_loading_labels)
+  
+  # Create plot
+  ggplot() +
+    geom_point(data = scores, 
+              aes(x = get(paste0("PC", pc_x)), 
+                  y = get(paste0("PC", pc_y)),
+                  color = basin, 
+                  shape = species),
+              size = point_size) +
+    geom_segment(data = loadings,
+                aes(x = 0, y = 0,
+                    xend = scaling_factor * get(paste0("PC", pc_x)),
+                    yend = scaling_factor * get(paste0("PC", pc_y))),
+                arrow = arrow(length = unit(0.2, "cm")),
+                color = loading_arrow_color,
+                alpha = 0.7) +
+    geom_text_repel(data = top_loadings,
+                   aes(x = scaling_factor * get(paste0("PC", pc_x)),
+                       y = scaling_factor * get(paste0("PC", pc_y)),
+                       label = variable),
+                   color = loading_label_color,
+                   size = 4.5,
+                   max.overlaps = Inf) +
+    labs(x = paste0("PC", pc_x, " (", round(pca_results$eig[pc_x, 2], 1), "%)"),
+         y = paste0("PC", pc_y, " (", round(pca_results$eig[pc_y, 2], 1), "%)"),
+         color = "Basin",
+         shape = "Species") +
+    scale_color_manual(values = c("Eastern" = "#233d4d", 
+                               "East Central" = "#db3a34", 
+                               "West Central" = "#fcca46",  
+                                 "Western" = "#619b8a")) +
+    scale_shape_manual(values = c("Yellow Perch" = 8,
+                                "Walleye" = 16,
+                                "Freshwater Drum" = 18,
+                                "Gizzard Shad" = 15)) +
+    geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+    geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+    theme_minimal() +
+     #scale_x_continuous(breaks = seq(-4, 4.5, by = 1), limits = c(-4, 4.5))  +
+     #scale_y_continuous(breaks = seq(-3, 4, by = 1), limits = c(-3, 4)) +
+    theme(legend.position = "none",
+          plot.title = element_text(),
+          panel.background = element_rect(fill = "white", color = NA),
+          plot.background = element_rect(fill = "white", color = NA),
+          axis.title.x = element_text(face = "bold", size = 16),
+          axis.title.y = element_text(face = "bold", size = 16),
+          axis.text.x = element_text( size = 12),
+           axis.text.y = element_text( size = 12),
+          legend.text = element_text( size = 14),
+          legend.title = element_text(size =14))
+}
+
+# Create metadata
+metadata <- concentration_data[, c("sample", "species", "basin")]
+
+
+# Generate and save biplots
+biplot_pc1_pc2 <- create_biplot(hellinger_data, pca_results, metadata, pc_x = 1, pc_y = 2)
+ggsave(here("figures", "PCA_biplot_PC1_PC2.tiff"), biplot_pc1_pc2,   dpi = 300)
+
+biplot_pc1_pc3 <- create_biplot(hellinger_data, pca_results, metadata, pc_x = 1, pc_y = 3)
+ggsave(here("figures", "PCA_biplot_PC1_PC3.tiff"), biplot_pc1_pc3,dpi = 300)
+
+biplot_pc1_pc2
+biplot_pc1_pc3
+
+```
+
+
+```{r}
+
+
+# UMAP Analysis ----------------------------------------------------------
+
+set.seed(2)
+umap_config <- umap.defaults
+umap_config$n_neighbors <- 5
+umap_config$n_components <- 3
+umap_config$min_dist <- 0.1
+
+# Perform UMAP on Hellinger-transformed data
+umap_results <- umap(hellinger_data[, !names(hellinger_data) %in% c("sample", "species", "basin")], 
+                     config = umap_config)
+umap_values <- as.data.frame(umap_results$layout)
+colnames(umap_values) <- c("Variable1", "Variable2", "Variable3")
+umap_values <- cbind(hellinger_data[, c("sample", "species", "basin")], umap_values)
+
+# Save UMAP values
+write.csv(umap_values, here("output", "UMAP_values.csv"), row.names = FALSE)
+
+# UMAP Visualization -----------------------------------------------------
+
+# Plot UMAP (Variable1 vs Variable2)
+umap_plot_va1_va2 <- ggplot(umap_values, aes(x = Variable1, y = Variable2, color = basin, shape = species)) +
+  geom_point(size = 3.5) +
+  labs(x = "UMAP Variable 1", y = "UMAP Variable 2",
+       color = "Basin", shape = "Species") +
+  theme_minimal(base_size = 12) +
+       #scale_x_continuous(breaks = seq(-4, 5, by = 1), limits = c(-4, 5))  +
+     #scale_y_continuous(breaks = seq(-2, 3, by = 1), limits = c(-2, 3)) +
+  theme(panel.background = element_rect(fill = "white", color = NA),
+        plot.background = element_rect(fill = "white", color = NA),
+         axis.title.x = element_text(face = "bold", size = 14),
+          axis.title.y = element_text(face = "bold", size = 14),
+          axis.text.x = element_text( size = 12),
+           axis.text.y = element_text( size = 12),
+          #legend.text = element_text( size = 12),
+          #legend.title = element_text(size =12)) 
+        legend.position = "none")+
+  scale_color_manual(values = c("Eastern" = "#233d4d", 
+                              "East Central" = "#db3a34", 
+                               "West Central" = "#fcca46", 
+                               "Western" = "#619b8a")) +
+  scale_shape_manual(values = c("Yellow Perch" = 8, 
+                               "Walleye" = 16,
+                               "Freshwater Drum" = 18,
+                               "Gizzard Shad" = 15))
+
+umap_plot_va1_va2
+
+ggsave(here("figures", "umap_va1_va2_HPACs.tiff"), umap_plot_va1_va2, width = 8, height = 8,  dpi = 300)
+
+# Plot UMAP (Variable1 vs Variable3)
+umap_plot_va1_va3 <- ggplot(umap_values, aes(x = Variable1, y = Variable3, color = basin, shape = species)) +
+  geom_point(size = 3) +
+  labs(x = "UMAP Variable 1", y = "UMAP Variable 3",
+       color = "Basin", shape = "Species") +
+  theme_minimal(base_size = 12) +
+       #scale_x_continuous(breaks = seq(-3, 5, by = 1), limits = c(-3, 5))  +
+    # scale_y_continuous(breaks = seq(-6, 3, by = 1), limits = c(-6, 3)) +
+  theme(panel.background = element_rect(fill = "white", color = NA),
+        plot.background = element_rect(fill = "white", color = NA),
+         axis.title.x = element_text(face = "bold", size = 14),
+          axis.title.y = element_text(face = "bold", size = 14),
+          axis.text.x = element_text( size = 12),
+           axis.text.y = element_text( size = 12),
+          #legend.text = element_text( size = 12),
+          #legend.title = element_text(size =12))+
+        legend.position = "none")+
+  scale_color_manual(values = c("Eastern" = "#233d4d", 
+                             "East Central" = "#db3a34", 
+                               "West Central" = "#fcca46", 
+                               "Western" = "#619b8a")) +
+  scale_shape_manual(values = c("Yellow Perch" = 8, 
+                               "Walleye" = 16,
+                               "Freshwater Drum" = 18,
+                               "Gizzard Shad" = 15))
+
+umap_plot_va1_va3
+ggsave(here("figures", "umap_va1_va3_HPACs.tiff"), umap_plot_va1_va3, width = 8, height = 8, dpi = 300)
+```
+```{r}
+# 1. Reorder basin factor (THIS controls legend order)
+#--------------------------------------------------
+metadata$basin <- factor(
+  metadata$basin,
+  levels = c("Eastern", "East Central", "West Central", "Western")
+)
+
+#--------------------------------------------------
+# 2. Create a temporary PCA biplot (used only to extract legend)
+#--------------------------------------------------
+tmp_plot <- create_biplot(
+  hellinger_data,
+  pca_results,
+  metadata,
+  pc_x = 1,
+  pc_y = 2
+)
+
+#--------------------------------------------------
+# 3. Extract ONLY the legend (horizontal + larger font)
+#--------------------------------------------------
+legend_only <- get_legend(
+  tmp_plot +
+    theme(
+      legend.position = "bottom",
+      legend.direction = "horizontal",
+      legend.box = "horizontal",
+      legend.text  = element_text(size = 16),   # ← INCREASE legend label size
+      #legend.title = element_text(size = 15)    # ← INCREASE legend title size
+      legend.title = element_blank()
+    )
+)
+
+
+#--------------------------------------------------
+# 4. Display legend alone
+#--------------------------------------------------
+plot(legend_only)
+
+#--------------------------------------------------
+# 5. Save legend as a standalone figure (publication-ready)
+#--------------------------------------------------
+ggsave(
+  here("figures", "PCA_legend_horizontal_ordered.tiff"),
+  legend_only,
+  width = 15,
+  height = 1,
+  dpi = 300
+)
+```
+

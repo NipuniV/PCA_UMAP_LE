@@ -1,0 +1,4 @@
+"0","# Apply log10 transformation directly to analyte columns"
+"0","log_transformed_data <- filtered_data %>%"
+"0","  mutate(across(all_of(selected_analytes), ~ log10(.x)))"
+"0","log_transformed_data"

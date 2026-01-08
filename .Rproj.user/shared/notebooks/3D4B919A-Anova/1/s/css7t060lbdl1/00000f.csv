@@ -1,0 +1,7 @@
+"0","# Load and prepare data ---------------------------------------------------"
+"0","# Load concentration data with clean names"
+"0","concentration_data <- clean_names(read.csv(here(""data"", ""concentration_data.csv"")))"
+"0",""
+"0","# Load binary data (detect/non-detect)"
+"0","binary_data <- clean_names(read.csv(here(""data"",""binary_table.csv"")))"
+"0",""

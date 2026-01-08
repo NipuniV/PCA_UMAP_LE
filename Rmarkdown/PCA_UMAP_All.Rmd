@@ -1,0 +1,358 @@
+---
+title: "PCA_UMAP_HPACs"
+author: "Nipuni Vitharana"
+date: "2025-05-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Install all the Packages needed
+library(tidyverse)
+library(broom)
+library(janitor) #To clean data and turn thoese to tidy data
+library(here) #To navigate through the project oriented workflow (file system)
+
+library(ggridges) #To overlap the created plots
+library(viridis) #To generate colored graphs 
+library(ggthemes) #To get more themes for ggplot
+
+library(ggrepel)   #to repel overlapping text labels 
+library(patchwork) #To combine two or more plots together
+library(ggtext) #To construct a text box
+
+library(umap)
+library(factoextra) #Extract and visualize data from multivariate data analyses
+library(FactoMineR) #Multivariate Exploratory Data Analysis and Data Mining with R
+```
+
+```{r}
+#load concentration data with clean names
+concentration_data <- clean_names(read.csv(here("data", "concentration_data.csv"))) #To read csv files in the file system here package has used and #Clean up the names of the columns according to tidydata principles
+concentration_data
+
+#loadbinary data (detect/non-detect)
+binary_data <- clean_names(read.csv(here("data","binary_table.csv")))
+binary_data
+```
+
+## Calculation of detection percentage
+
+```{r}
+# Filter binary data based on detection percentage
+# Remove sample names and the sampleType column, then select sample columns for detect percentage calculation
+binary_data_matrix <- binary_data[,-1]  # Since Sample IDs are in binary data one binary data
+
+# Calculate detection percentages
+detection_percentages <- colSums(binary_data_matrix) / nrow(binary_data_matrix) * 100
+detection_percentages
+write.csv(detection_percentages, "detection_percentages.csv")
+
+# Select analytes with 10% or higher detection percentage
+selected_analytes <- names(detection_percentages[detection_percentages >= 75])
+selected_analytes
+```
+```{r}
+# Filter concentration data to include only selected analytes
+filtered_data <- concentration_data %>%
+  select(all_of(c("sample", "species", "basin", selected_analytes)))
+filtered_data
+```
+
+
+```{r}
+# Apply log10 transformation directly to analyte columns
+log_transformed_data <- filtered_data %>%
+  mutate(across(all_of(selected_analytes), ~ log10(.x)))
+log_transformed_data
+```
+
+```{r}
+# Define analyte columns dynamically (i.e., all columns after column 3)
+selected_analytes <- colnames(log_transformed_data)[4:ncol(log_transformed_data)]
+selected_analytes
+
+## Step 1: Reshape data to long format
+long_data <- log_transformed_data %>%
+  pivot_longer(
+    cols = 4:ncol(.),                     # All analyte columns
+    names_to = "analyte", 
+    values_to = "value"
+  )
+long_data
+
+# Step 2: Group by basin and analyte, but ensure sufficient valid data
+anova_results <- long_data %>%
+  group_by(basin, analyte) %>%
+  nest() %>%
+  mutate(
+    valid = map_lgl(data, ~ {
+      d <- .x
+      has_multiple_species <- n_distinct(d$species) > 1
+      has_valid_values <- all(is.finite(d$value), na.rm = TRUE)
+      has_non_na <- sum(!is.na(d$value)) >= 2
+      has_multiple_species && has_valid_values && has_non_na
+    })
+  ) %>%
+  filter(valid) %>%
+  mutate(
+    anova_result = map(data, ~ aov(value ~ species, data = .x) %>% tidy())
+  ) %>%
+  unnest(anova_result) %>%
+  filter(term == "species") %>%
+  select(basin, analyte, p.value)
+
+# Preview the result
+head(anova_results)
+anova_results
+```
+
+```{r}
+# Step 4: Count how often each analyte has p > 0.05
+low_var_analytes <- anova_results %>%
+  mutate(non_significant = p.value > 0.05) %>%
+  group_by(analyte) %>%
+  summarise(non_sig_count = sum(non_significant)) %>%
+  filter(non_sig_count >= 2)  # Keep analytes with low species variability in at least 2 basins
+
+low_var_analytes
+```
+
+```{r}
+# Step 1: Extract the analytes with low variance (from previous step)
+selected_analytes_anova <- low_var_analytes$analyte
+selected_analytes_anova
+
+# Step 2: Filter original (non-log) concentration data
+# Assume 'concentration_data' is your original data frame (non-log-transformed)
+pca_input <- concentration_data %>%
+  select(sample, species, basin, all_of(selected_analytes_anova))
+pca_input
+```
+
+```{r}
+
+# Assuming 'filtered_data' is a data frame with PAC concentrations from 4th column to the last column
+# Calculate the total PAC concentration for each sample using columns 3 to last
+concentration_filtered <- pca_input %>%
+  rowwise() %>% #do the operations raw by raw individually
+  mutate(Total_PAC = sum(c_across(4:last_col()))) # Take the summary of each raw
+concentration_filtered
+
+# Calculate the percent contribution of each analyte (in columns 4 to last) to the total HPAC concentration
+percent_normalized_data <- concentration_filtered %>%
+  mutate(across(4:last_col(), ~ (. / Total_PAC) * 100)) # ~ introduce the anonymous function to each column and . is representing each sample
+percent_normalized_data
+
+# Step 3: Drop the 'Total_PAC' column if not needed for PCA
+percent_normalized_data <- percent_normalized_data %>%
+  select(-sample, -species,-basin, -Total_PAC) # remove the column with total PACs concentration
+percent_normalized_data # The 'percent_normalized_data' now contains the percent contribution HPACs profiles.
+
+```
+
+
+
+
+```{r}
+
+# Perform PCA on the normalized percent concentration data
+pca_results <- PCA(percent_normalized_data, graph = FALSE)
+
+# Extract PCA results
+pca_values <- as.data.frame(pca_results$ind$coord)
+pca_values <- cbind(concentration_filtered[, c("sample", "species", "basin")], pca_values[, 1:3])
+colnames(pca_values)[4:6] <- c("PC1", "PC2", "PC3")
+pca_values
+
+# Save PCA values in the output folder
+write.csv(pca_values, here("output", "PCA_values_HPACs.csv"), row.names = FALSE)
+
+```
+
+```{r}
+
+# Identify high-loading analytes for each principal component
+loading_scores <- as.data.frame(pca_results$var$coord)
+high_loading_analytes <- lapply(1:3, function(i) {
+  loading_scores %>%
+    select(contains(paste0("Dim.", i))) %>%
+    rownames_to_column(var = "sample") %>%
+    arrange(desc(abs(get(paste0("Dim.", i))))) %>%
+    head(5) %>%
+    pull(sample)
+})
+names(high_loading_analytes) <- c("PC1_high", "PC2_high", "PC3_high")
+loading_scores
+high_loading_analytes
+
+# Save loading scores to a CSV file
+write.csv(high_loading_analytes, here("output", "high_loading_analytes_HPAC.csv"), row.names = TRUE)
+```
+
+```{r}
+
+# Save loading scores to a CSV file
+loading_scores <- as.data.frame(pca_results$var$coord)
+write.csv(loading_scores, here("output", "PCA_loading_scores.csv"), row.names = TRUE)
+
+# Save eigenvalues to a CSV file
+eigenvalues <- as.data.frame(pca_results$eig)
+write.csv(eigenvalues, here("output", "PCA_eigenvalues.csv"), row.names = TRUE)
+
+```
+
+
+
+```{r}
+# Plot PCA results with different colors for each basin and shapes for each species (PC1 vs PC2)
+pca_plot_pc1_pc2 <- ggplot(pca_values, aes(x = PC1, y = PC2, color = basin, shape = species)) +
+  geom_point(size = 3) +
+  labs(title = "PCA for Fish Samples from Lake Erie (PC1 vs PC2)",
+       x = "Principal Component 1", y = "Principal Component 2") +
+  theme_minimal() +
+  scale_color_manual(values = c("Eastern" = "#233d4d", 
+                                "East Central" = "#db3a34", 
+                                "West Central" = "#fcca46", 
+                                "Western" = "#619b8a")) +
+  scale_shape_manual(values = c("Yellow Perch" = 8,  # Stars
+                                 "Walleye" = 16,     # Dots
+                                 "Freshwater Drum" = 18, # Diamonds
+                                 "Gizzard Shad" = 15))  # Squares
+
+pca_plot_pc1_pc2
+
+# Save the first plot as a PNG file in the figures folder
+ggsave(here("figures", "PCA_PC1_vs_PC2_HPACs.png"), plot = pca_plot_pc1_pc2, width = 8, height = 6, dpi = 300)
+
+
+# Plot PCA results with different colors for each basin and shapes for each species (PC1 vs PC3)
+pca_plot_pc1_pc3 <- ggplot(pca_values, aes(x = PC1, y = PC3, color = basin, shape = species)) +
+  geom_point(size = 3) +
+  labs(title = "PCA for Fish Samples from Lake Erie (PC1 vs PC3)",
+       x = "Principal Component 1", y = "Principal Component 3") +
+  theme_minimal() +
+  scale_color_manual(values = c("Eastern" = "#233d4d", 
+                                "East Central" = "#db3a34", 
+                                "West Central" = "#fcca46", 
+                                "Western" = "#619b8a")) +
+  scale_shape_manual(values = c("Yellow Perch" = 8,  # Stars
+                                 "Walleye" = 16,     # Dots
+                                 "Freshwater Drum" = 18, # Diamonds
+                                 "Gizzard Shad" = 15))  # Squares
+pca_plot_pc1_pc3
+
+# Save the first plot as a PNG file in the figures folder
+ggsave(here("figures", "PCA_PC1_vs_PC3_HPACs.png"), plot = pca_plot_pc1_pc3, width = 8, height = 6, dpi = 300)
+
+```
+
+```{r}
+# Create PCA biplot with dots for samples
+pca_biplot <- fviz_pca_biplot(
+  pca_results, 
+  repel = TRUE,               # Avoid overlapping labels
+  label = "var",              # Label only variables (analytes)
+ 
+  geom.ind = "point",         # Show only dots for samples
+  palette = "Dark2",          # Use a distinct color palette
+  addEllipses = TRUE,         # Add confidence ellipses
+  col.var = "blue",            # Variables (analytes) in red
+  pointsize = 3               # Adjust point size
+) +
+  theme_minimal()+
+   theme(
+    axis.title = element_text(face = "bold"), # Bold axis labels
+    axis.line = element_line(color = "black", size = 0.5),  # Add axis lines
+    axis.text = element_text(color = "black", face = "bold"),
+    plot.title = element_blank(), # Remove title
+    legend.title = element_blank(),
+    legend.text = element_text(face = "bold")
+  )+  scale_color_manual(values = c("Eastern" = "#233d4d", 
+                                "East Central" = "#db3a34", 
+                                "West Central" = "#fcca46", 
+                                "Western" = "#619b8a")) +
+  scale_shape_manual(values = c("Yellow Perch" = 8,  # Stars
+                                 "Walleye" = 16,     # Dots
+                                 "Freshwater Drum" = 18, # Diamonds
+                                 "Gizzard Shad" = 15))  # Squares
+pca_biplot
+
+# Save the plot in the "figures" folder inside the project directory
+ggsave(
+  filename = here("figures", "PCA_Biplot.png"), # Save as PNG in the correct folder
+  plot = pca_biplot, 
+  width = 8, height = 6, dpi = 300
+)
+```
+
+## UMAP
+
+```{r}
+set.seed(2)
+# UMAP parameters
+umap_config <- umap.defaults
+umap_config$n_neighbors <- 10
+umap_config$n_components <- 3
+umap_config$min_dist <- 0.001
+
+# Perform UMAP on the filtered concentration data
+concentration_filtered1 <- concentration_filtered %>%
+  select(-sample, -species, -basin)
+
+umap_results <- umap(concentration_filtered1, config = umap_config)
+umap_values <- as.data.frame(umap_results$layout)
+colnames(umap_values) <- c("Variable1", "Variable2", "Variable3")
+umap_values <- cbind(concentration_filtered[, c("sample", "species", "basin")], umap_values)
+
+
+
+# Save umap_values in the output folder
+write.csv(umap_values, here("output", "UMAP_values.csv"), row.names = FALSE)
+
+```
+
+```{r}
+# Plot UMAP results with different colors for each basin and specific shapes for each species
+umap_plot_va1_va2 <- ggplot(umap_values, aes(x = Variable1, y = Variable2, color = basin, shape = species)) +
+  geom_point(size = 3) +
+  labs(title = "UMAP of Fish Samples from Lake Erie",
+       x = "UMAP Variable 1", y = "UMAP Variable 2") +
+  theme_minimal() +
+  scale_color_manual(values = c("Eastern" = "#233d4d", 
+                                "East Central" = "#db3a34", 
+                                "West Central" = "#fcca46", 
+                                "Western" = "#619b8a")) +
+  scale_shape_manual(values = c("Yellow Perch" = 8,  # Stars
+                                 "Walleye" = 16,     # Dots
+                                 "Freshwater Drum" = 18, # Diamonds
+                                 "Gizzard Shad" = 15))  # Squares
+umap_plot_va1_va2
+
+# Save the first plot as a PNG file in the figures folder
+ggsave(here("figures", "umap_va1_va2_HPACs.png"), plot = umap_plot_va1_va2, width = 8, height = 6, dpi = 300)
+ggsave(here("figures", "umap_va1_va2_HPACs.tiff"), plot = umap_plot_va1_va2, width = 8, height = 6, dpi = 300)
+
+
+umap_plot_va1_va3 <- ggplot(umap_values, aes(x = Variable1, y = Variable3, color = basin, shape = species)) +
+  geom_point(size = 3) +
+  labs(title = "UMAP of Fish Samples from Lake Erie",
+       x = "UMAP Variable 1", y = "UMAP Variable 3") +
+  theme_minimal() +
+  scale_color_manual(values = c("Eastern" = "#233d4d", 
+                                "East Central" = "#db3a34", 
+                                "West Central" = "#fcca46", 
+                                "Western" = "#619b8a")) +
+  scale_shape_manual(values = c("Yellow Perch" = 8,  # Stars
+                                 "Walleye" = 16,     # Dots
+                                 "Freshwater Drum" = 18, # Diamonds
+                                 "Gizzard Shad" = 15))  # Squares
+umap_plot_va1_va3
+
+# Save the first plot as a PNG file in the figures folder
+ggsave(here("figures", "umap_va1_va3_HPACs.png"), plot = umap_plot_va1_va3, width = 8, height = 6, dpi = 300)
+ggsave(here("figures", "umap_va1_va3_HPACs.tiff"), plot = umap_plot_va1_va3, width = 8, height = 6, dpi = 300)
+```
